@@ -2,8 +2,8 @@
 TNC3L was developed as an enhanced hardware version of Mobilinkd’s open-sourced TNC3.  
 The goal was to make TNC3L easier to use and maintain from a hardware perspective and 
 not to change/rewrite firmware developed for TNC3.  This would ensure application compatibility, 
-including TNC3 firmware updates.  TNC3L is open-sourced and licensed under GPL-3.0.  Please refer to
-the link below for more on TNC3 which this project is based on.
+including TNC3 firmware updates.  TNC3L is open-sourced and licensed under GPL-3.0.  This 
+repository is a fork of 
 
  [Mobilinkd TNC3 Repository](https://github.com/mobilinkd/tnc3-firmware)
 
