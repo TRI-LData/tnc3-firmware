@@ -51,6 +51,9 @@
 #ifndef __MAIN_H__
 #define __MAIN_H__
 
+//tnc3L - define for tnc3L hardware
+#define TNC3L
+
 /* Includes ------------------------------------------------------------------*/
 
 /* USER CODE BEGIN Includes */
@@ -116,6 +119,7 @@
 #define SW_BOOT_GPIO_Port GPIOH
 #define SW_BOOT_EXTI_IRQn EXTI3_IRQn
 
+
 /* ########################## Assert Selection ############################## */
 /**
   * @brief Uncomment the line below to expanse the "assert_param" macro in the 
@@ -157,7 +161,7 @@
 #define CMD_USB_RESUME 26
 
 extern int reset_requested;
-extern char serial_number_64[17];
+extern char serial_number_64[13];
 extern uint8_t mac_address[6];
 extern char error_message[80];
 extern int go_back_to_sleep;
@@ -173,6 +177,7 @@ extern osMutexId hardwareInitMutexHandle;
 #endif
 
 void SysClock48(void);
+void SysClock72(void);
 void SysClock80(void);
 void SysClock4(void);
 
@@ -181,6 +186,21 @@ void SysClock4(void);
 #endif
 
 #define SystemClock_Config_48MHz SystemClock_Config
+
+// Compatibility defines
+#define BATTERY_ADC_HANDLE hadc1
+#define BATTERY_ADC_CHANNEL ADC_CHANNEL_15
+#define LED_PWM_TIMER_HANDLE htim1
+#define SERIAL_UART huart3
+
+#define HAVE_LSCO
+#define TNC_HAS_LSCO
+#define TNC_HAS_SWO
+#define TNC_HAS_LSE
+// #define TNC_HAS_HSE
+// #define TNC_HAS_MCO
+#define TNC_HAS_BT
+
 
 /* USER CODE END Private defines */
 

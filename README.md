@@ -1,6 +1,6 @@
 # TNC3L
 # !!! THIS RESPOSITORY IS WORK INPROGRESS !!!
-##Current Status: Repository work and TNC3L prep for FCC testing
+## Current Status: Repository work and TNC3L prep for FCC testing
 
 TNC3L was developed as an enhanced hardware version of Mobilinkd’s open-sourced TNC3.  
 The goal was to make TNC3L easier to use and maintain from a hardware perspective and 
