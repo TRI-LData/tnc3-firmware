@@ -1,6 +1,5 @@
 
 /**
-Git Test2
   ******************************************************************************
   * @file           : main.c
   * @brief          : Main program body
@@ -59,7 +58,6 @@ Git Test2
 #include "PortInterface.h"
 #include "LEDIndicator.h"
 #include "bm78.h"
-#include "base64.h"
 #include "KissHardware.h"
 #include "Log.h"
 
@@ -100,9 +98,6 @@ osStaticThreadDef_t defaultTaskControlBlock;
 osThreadId ioEventTaskHandle;
 uint32_t ioEventTaskBuffer[ 384 ];
 osStaticThreadDef_t ioEventTaskControlBlock;
-osThreadId ledBlinkerHandle;
-uint32_t ledBlinkerBuffer[ 128 ];
-osStaticThreadDef_t ledBlinkerControlBlock;
 osThreadId audioInputTaskHandle;
 uint32_t audioInputTaskBuffer[ 512 ];
 osStaticThreadDef_t audioInputTaskControlBlock;
@@ -119,19 +114,19 @@ osMessageQId serialOutputQueueHandle;
 uint8_t serialOutputQueueBuffer[ 16 * sizeof( uint32_t ) ];
 osStaticMessageQDef_t serialOutputQueueControlBlock;
 osMessageQId audioInputQueueHandle;
-uint8_t audioInputQueueBuffer[ 4 * sizeof( uint8_t ) ];
+uint8_t audioInputQueueBuffer[ 8 * sizeof( uint32_t ) ];
 osStaticMessageQDef_t audioInputQueueControlBlock;
 osMessageQId hdlcInputQueueHandle;
 uint8_t hdlcInputQueueBuffer[ 3 * sizeof( uint32_t ) ];
 osStaticMessageQDef_t hdlcInputQueueControlBlock;
 osMessageQId hdlcOutputQueueHandle;
-uint8_t hdlcOutputQueueBuffer[ 3 * sizeof( uint32_t ) ];
+uint8_t hdlcOutputQueueBuffer[ 8 * sizeof( uint32_t ) ];
 osStaticMessageQDef_t hdlcOutputQueueControlBlock;
 osMessageQId dacOutputQueueHandle;
 uint8_t dacOutputQueueBuffer[ 128 * sizeof( uint8_t ) ];
 osStaticMessageQDef_t dacOutputQueueControlBlock;
 osMessageQId adcInputQueueHandle;
-uint8_t adcInputQueueBuffer[ 3 * sizeof( uint32_t ) ];
+uint8_t adcInputQueueBuffer[ 8 * sizeof( uint32_t ) ];
 osStaticMessageQDef_t adcInputQueueControlBlock;
 osTimerId beaconTimer1Handle;
 osStaticTimerDef_t beaconTimer1ControlBlock;
@@ -150,7 +145,7 @@ osMutexId hardwareInitMutexHandle;
 
 int lost_power = 0;
 int reset_requested = 0;
-char serial_number_64[17] = {0};
+char serial_number_64[13] = {0};
 // Make sure it is not overwritten during resets (bss3).
 uint8_t mac_address[6] __attribute__((section(".bss3"))) = {0};
 char error_message[80] __attribute__((section(".bss3"))) = {0};
@@ -181,7 +176,6 @@ static void MX_TIM1_Init(void);
 static void MX_OPAMP1_Init(void);
 void StartDefaultTask(void const * argument);
 extern void startIOEventTask(void const * argument);
-extern void startLedBlinkerTask(void const * argument);
 extern void startAudioInputTask(void const * argument);
 extern void startModulatorTask(void const * argument);
 extern void beacon(void const * argument);
@@ -211,8 +205,6 @@ extern PCD_HandleTypeDef hpcd_USB_FS;
 
 void configure_gpio_for_stop()
 {
-    GPIO_InitTypeDef GPIO_InitStruct;
-
     __HAL_RCC_GPIOC_CLK_ENABLE();
     __HAL_RCC_GPIOH_CLK_ENABLE();
     __HAL_RCC_GPIOA_CLK_ENABLE();
@@ -306,7 +298,9 @@ void configure_wakeup_gpio()
     // Reset wakeup pins
     HAL_NVIC_DisableIRQ(EXTI0_IRQn);
     HAL_NVIC_DisableIRQ(EXTI1_IRQn);
+#ifndef TNC3L
     HAL_GPIO_DeInit(GPIOH, USB_POWER_Pin|SW_POWER_Pin);
+#endif
 
     // Wake up whenever there is a change in VUSB to handle connect/disconnect events.
     GPIO_InitStruct.Pin = USB_POWER_Pin;
@@ -406,6 +400,7 @@ int main(void)
   } else {
       reset_button = 0;
   }
+  __HAL_RCC_CLEAR_RESET_FLAGS();
   /* USER CODE END 1 */
 
   /* MCU Configuration----------------------------------------------------------*/
@@ -448,6 +443,8 @@ int main(void)
   MX_I2C1_Init();
   MX_TIM6_Init();
   MX_TIM7_Init();
+  MX_RNG_Init();
+
   MX_OPAMP1_Init();
   /* USER CODE BEGIN 2 */
   if (stop_now) stop2();
@@ -456,9 +453,19 @@ int main(void)
   SCB->SHCSR |= 0x70000;    // Enable fault handlers;
   if (!go_back_to_sleep) {
       indicate_turning_on();    // LEDs on during boot.
+#ifndef TNC3L
       if (HAL_GPIO_ReadPin(SW_POWER_GPIO_Port, SW_POWER_Pin) && reset_button) {
           reset_requested = 1;
       }
+#endif
+
+#ifdef TNC3L
+      if (reset_button)
+      {
+          reset_requested = 1;
+      }
+#endif
+
   }
 
   encode_serial_number();
@@ -520,7 +527,10 @@ int main(void)
 
   /* USER CODE BEGIN RTOS_SEMAPHORES */
   /* add semaphores, ... */
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wwrite-strings"    // cmsis-os is not const-correct.
   /* USER CODE END RTOS_SEMAPHORES */
+
 
   /* Create the timer(s) */
   /* definition and creation of beaconTimer1 */
@@ -556,10 +566,6 @@ int main(void)
   osThreadStaticDef(ioEventTask, startIOEventTask, osPriorityLow, 0, 384, ioEventTaskBuffer, &ioEventTaskControlBlock);
   ioEventTaskHandle = osThreadCreate(osThread(ioEventTask), NULL);
 
-  /* definition and creation of ledBlinker */
-  osThreadStaticDef(ledBlinker, startLedBlinkerTask, osPriorityIdle, 0, 128, ledBlinkerBuffer, &ledBlinkerControlBlock);
-  ledBlinkerHandle = osThreadCreate(osThread(ledBlinker), NULL);
-
   /* definition and creation of audioInputTask */
   osThreadStaticDef(audioInputTask, startAudioInputTask, osPriorityAboveNormal, 0, 512, audioInputTaskBuffer, &audioInputTaskControlBlock);
   audioInputTaskHandle = osThreadCreate(osThread(audioInputTask), NULL);
@@ -586,7 +592,7 @@ int main(void)
   serialOutputQueueHandle = osMessageCreate(osMessageQ(serialOutputQueue), NULL);
 
   /* definition and creation of audioInputQueue */
-  osMessageQStaticDef(audioInputQueue, 4, uint8_t, audioInputQueueBuffer, &audioInputQueueControlBlock);
+  osMessageQStaticDef(audioInputQueue, 8, uint32_t, audioInputQueueBuffer, &audioInputQueueControlBlock);
   audioInputQueueHandle = osMessageCreate(osMessageQ(audioInputQueue), NULL);
 
   /* definition and creation of hdlcInputQueue */
@@ -594,7 +600,7 @@ int main(void)
   hdlcInputQueueHandle = osMessageCreate(osMessageQ(hdlcInputQueue), NULL);
 
   /* definition and creation of hdlcOutputQueue */
-  osMessageQStaticDef(hdlcOutputQueue, 3, uint32_t, hdlcOutputQueueBuffer, &hdlcOutputQueueControlBlock);
+  osMessageQStaticDef(hdlcOutputQueue, 8, uint32_t, hdlcOutputQueueBuffer, &hdlcOutputQueueControlBlock);
   hdlcOutputQueueHandle = osMessageCreate(osMessageQ(hdlcOutputQueue), NULL);
 
   /* definition and creation of dacOutputQueue */
@@ -602,12 +608,12 @@ int main(void)
   dacOutputQueueHandle = osMessageCreate(osMessageQ(dacOutputQueue), NULL);
 
   /* definition and creation of adcInputQueue */
-  osMessageQStaticDef(adcInputQueue, 3, uint32_t, adcInputQueueBuffer, &adcInputQueueControlBlock);
+  osMessageQStaticDef(adcInputQueue, 8, uint32_t, adcInputQueueBuffer, &adcInputQueueControlBlock);
   adcInputQueueHandle = osMessageCreate(osMessageQ(adcInputQueue), NULL);
 
   /* USER CODE BEGIN RTOS_QUEUES */
   /* add queues, ... */
-  /* USER CODE BEGIN RTOS_QUEUES */
+#pragma GCC diagnostic pop
 
   // Initialize the DC offset DAC and the PGA op amp.  Calibrate the ADC.
   if (HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_2, DAC_ALIGN_12B_R, 1024) != HAL_OK) Error_Handler();
@@ -668,6 +674,8 @@ int main(void)
   }
 #endif
 
+//  MX_IWDG_Init();
+
   /* USER CODE END RTOS_QUEUES */
  
 
@@ -711,18 +719,20 @@ void SystemClock_Config(void)
     /**Initializes the CPU, AHB and APB busses clocks 
     */
   RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_LSI|RCC_OSCILLATORTYPE_LSE
-                              |RCC_OSCILLATORTYPE_MSI|RCC_OSCILLATORTYPE_HSI;
+                              |RCC_OSCILLATORTYPE_MSI|RCC_OSCILLATORTYPE_HSI
+                              |RCC_OSCILLATORTYPE_HSI48;
   RCC_OscInitStruct.LSEState = RCC_LSE_ON;
   RCC_OscInitStruct.LSIState = RCC_LSI_OFF;
   RCC_OscInitStruct.MSIState = RCC_MSI_ON;
   RCC_OscInitStruct.HSIState = RCC_HSI_ON;
+  RCC_OscInitStruct.HSI48State = RCC_HSI48_ON;
   RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
   RCC_OscInitStruct.MSICalibrationValue = RCC_MSICALIBRATION_DEFAULT;
-  RCC_OscInitStruct.MSIClockRange = RCC_MSIRANGE_6;
+  RCC_OscInitStruct.MSIClockRange = RCC_MSIRANGE_11;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_MSI;
-  RCC_OscInitStruct.PLL.PLLM = 1;
-  RCC_OscInitStruct.PLL.PLLN = 24;
+  RCC_OscInitStruct.PLL.PLLM = 4;
+  RCC_OscInitStruct.PLL.PLLN = 8;
   RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV7;
   RCC_OscInitStruct.PLL.PLLQ = RCC_PLLQ_DIV2;
   RCC_OscInitStruct.PLL.PLLR = RCC_PLLR_DIV2;
@@ -750,24 +760,24 @@ void SystemClock_Config(void)
                               |RCC_PERIPHCLK_RNG|RCC_PERIPHCLK_ADC;
   PeriphClkInit.Usart3ClockSelection = RCC_USART3CLKSOURCE_HSI;
   PeriphClkInit.I2c1ClockSelection = RCC_I2C1CLKSOURCE_HSI;
-  PeriphClkInit.AdcClockSelection = RCC_ADCCLKSOURCE_SYSCLK;
+  PeriphClkInit.AdcClockSelection = RCC_ADCCLKSOURCE_PLLSAI1;
   PeriphClkInit.RTCClockSelection = RCC_RTCCLKSOURCE_LSE;
-  PeriphClkInit.UsbClockSelection = RCC_USBCLKSOURCE_PLLSAI1;
-  PeriphClkInit.RngClockSelection = RCC_RNGCLKSOURCE_PLLSAI1;
+  PeriphClkInit.UsbClockSelection = RCC_USBCLKSOURCE_HSI48;
+  PeriphClkInit.RngClockSelection = RCC_USBCLKSOURCE_HSI48;
   PeriphClkInit.PLLSAI1.PLLSAI1Source = RCC_PLLSOURCE_MSI;
-  PeriphClkInit.PLLSAI1.PLLSAI1M = 1;
+  PeriphClkInit.PLLSAI1.PLLSAI1M = 4;
   PeriphClkInit.PLLSAI1.PLLSAI1N = 24;
   PeriphClkInit.PLLSAI1.PLLSAI1P = RCC_PLLP_DIV7;
-  PeriphClkInit.PLLSAI1.PLLSAI1Q = RCC_PLLQ_DIV2;
-  PeriphClkInit.PLLSAI1.PLLSAI1R = RCC_PLLR_DIV2;
-  PeriphClkInit.PLLSAI1.PLLSAI1ClockOut = RCC_PLLSAI1_48M2CLK|RCC_PLLSAI1_ADC1CLK;
+  PeriphClkInit.PLLSAI1.PLLSAI1Q = RCC_PLLQ_DIV6;
+  PeriphClkInit.PLLSAI1.PLLSAI1R = RCC_PLLR_DIV4;
+  PeriphClkInit.PLLSAI1.PLLSAI1ClockOut = RCC_PLLSAI1_ADC1CLK;
   if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
   {
     _Error_Handler(__FILE__, __LINE__);
   }
 
 #ifdef KISS_LOGGING
-  HAL_RCCEx_EnableLSCO(RCC_LSCOSOURCE_LSE);
+  // HAL_RCCEx_EnableLSCO(RCC_LSCOSOURCE_LSE);
 #else
   HAL_RCCEx_DisableLSCO();
 #endif
@@ -846,7 +856,7 @@ static void MX_ADC1_Init(void)
     */
   sConfig.Channel = ADC_CHANNEL_8;
   sConfig.Rank = ADC_REGULAR_RANK_1;
-  sConfig.SamplingTime = ADC_SAMPLETIME_12CYCLES_5;
+  sConfig.SamplingTime = ADC_SAMPLETIME_24CYCLES_5;
   sConfig.SingleDiff = ADC_SINGLE_ENDED;
   sConfig.OffsetNumber = ADC_OFFSET_NONE;
   sConfig.Offset = 0;
@@ -962,7 +972,7 @@ static void MX_IWDG_Init(void)
 {
 
   hiwdg.Instance = IWDG;
-  hiwdg.Init.Prescaler = IWDG_PRESCALER_4;
+  hiwdg.Init.Prescaler = IWDG_PRESCALER_16;
   hiwdg.Init.Window = 4095;
   hiwdg.Init.Reload = 4095;
   if (HAL_IWDG_Init(&hiwdg) != HAL_OK)
@@ -1152,6 +1162,7 @@ static void MX_TIM7_Init(void)
   htim7.Init.CounterMode = TIM_COUNTERMODE_UP;
   htim7.Init.Period = 1817;
   htim7.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  htim7.Init.RepetitionCounter = 0;
   if (HAL_TIM_Base_Init(&htim7) != HAL_OK)
   {
     _Error_Handler(__FILE__, __LINE__);
@@ -1198,19 +1209,19 @@ static void MX_DMA_Init(void)
 
   /* DMA interrupt init */
   /* DMA1_Channel1_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(DMA1_Channel1_IRQn, 5, 0);
+  HAL_NVIC_SetPriority(DMA1_Channel1_IRQn, 5, 1);
   HAL_NVIC_EnableIRQ(DMA1_Channel1_IRQn);
   /* DMA1_Channel2_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(DMA1_Channel2_IRQn, 5, 0);
+  HAL_NVIC_SetPriority(DMA1_Channel2_IRQn, 7, 1);
   HAL_NVIC_EnableIRQ(DMA1_Channel2_IRQn);
   /* DMA1_Channel3_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(DMA1_Channel3_IRQn, 5, 0);
+  HAL_NVIC_SetPriority(DMA1_Channel3_IRQn, 6, 1);
   HAL_NVIC_EnableIRQ(DMA1_Channel3_IRQn);
   /* DMA1_Channel6_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(DMA1_Channel6_IRQn, 5, 0);
+  HAL_NVIC_SetPriority(DMA1_Channel6_IRQn, 7, 0);
   HAL_NVIC_EnableIRQ(DMA1_Channel6_IRQn);
   /* DMA1_Channel7_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(DMA1_Channel7_IRQn, 5, 0);
+  HAL_NVIC_SetPriority(DMA1_Channel7_IRQn, 6, 0);
   HAL_NVIC_EnableIRQ(DMA1_Channel7_IRQn);
   /* DMA2_Channel4_IRQn interrupt configuration */
   HAL_NVIC_SetPriority(DMA2_Channel4_IRQn, 5, 0);
@@ -1246,8 +1257,14 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_WritePin(GPIOA, BT_SLEEP_Pin|BAT_DIVIDER_Pin, GPIO_PIN_SET);
 
   /*Configure GPIO pin Output Level */
+#ifndef TNC3L
   HAL_GPIO_WritePin(GPIOB, AUDIO_ATTEN_Pin|VDD_EN_Pin|USB_CE_Pin|BT_CMD_Pin 
                           |BT_RESET_Pin, GPIO_PIN_SET);
+#endif
+#ifdef TNC3L
+  HAL_GPIO_WritePin(GPIOB, AUDIO_ATTEN_Pin|USB_CE_Pin|BT_CMD_Pin
+                            |BT_RESET_Pin, GPIO_PIN_SET);
+#endif
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOB, PTT_B_Pin|PTT_A_Pin, GPIO_PIN_RESET);
@@ -1260,7 +1277,14 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_Init(BT_WAKE_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pins : SW_POWER_Pin SW_BOOT_Pin */
+#ifndef TNC3L
   GPIO_InitStruct.Pin = SW_POWER_Pin|SW_BOOT_Pin;
+#endif
+#ifdef TNC3L
+  GPIO_InitStruct.Pin = SW_POWER_Pin;
+#endif
+
+
   GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING_FALLING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOH, &GPIO_InitStruct);
@@ -1284,6 +1308,15 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
+#if 0
+  /*Configure GPIO pins : PA2 -- abuse LSCO for GPIO debugging */
+  GPIO_InitStruct.Pin = GPIO_PIN_2;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+#endif
+
   /*Configure GPIO pin : BAT_DIVIDER_Pin */
   GPIO_InitStruct.Pin = BAT_DIVIDER_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_OD;
@@ -1299,7 +1332,13 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
   /*Configure GPIO pins : VDD_EN_Pin PTT_B_Pin PTT_A_Pin */
+#ifndef TNC3L
   GPIO_InitStruct.Pin = VDD_EN_Pin|PTT_B_Pin|PTT_A_Pin;
+#endif
+#ifdef TNC3L
+  GPIO_InitStruct.Pin = PTT_B_Pin|PTT_A_Pin;
+#endif
+
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
@@ -1310,6 +1349,16 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING_FALLING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+#ifdef TNC3L
+  //Configure battery charge status PIN, VDD_EN_pin changed to input in this version
+  GPIO_InitStruct.Pin = VDD_EN_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+#endif
+
 }
 
 /* USER CODE BEGIN 4 */
@@ -1457,10 +1506,13 @@ void SysClock48()
 {
     RCC_OscInitTypeDef RCC_OscInitStruct;
     RCC_ClkInitTypeDef RCC_ClkInitStruct;
+    RCC_PeriphCLKInitTypeDef PeriphClkInit;
 
     if (HAL_RCC_GetHCLKFreq() == 48000000) return;
 
     INFO("Setting 48MHz SysClock.");
+
+    taskENTER_CRITICAL();
 
     RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_SYSCLK;
     RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_HSI;
@@ -1474,11 +1526,14 @@ void SysClock48()
     */
     HAL_SYSTICK_Config(HAL_RCC_GetHCLKFreq()/1000);
 
-    RCC_OscInitStruct.OscillatorType = 0;
+    RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_MSI;
+    RCC_OscInitStruct.MSIState = RCC_MSI_ON;
+    RCC_OscInitStruct.MSICalibrationValue = RCC_MSICALIBRATION_DEFAULT;
+    RCC_OscInitStruct.MSIClockRange = RCC_MSIRANGE_11;
     RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
     RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_MSI;
-    RCC_OscInitStruct.PLL.PLLM = 1;
-    RCC_OscInitStruct.PLL.PLLN = 24;
+    RCC_OscInitStruct.PLL.PLLM = 4;
+    RCC_OscInitStruct.PLL.PLLN = 8;
     RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV7;
     RCC_OscInitStruct.PLL.PLLQ = RCC_PLLQ_DIV2;
     RCC_OscInitStruct.PLL.PLLR = RCC_PLLR_DIV2;
@@ -1488,7 +1543,21 @@ void SysClock48()
     }
 
     RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_SYSCLK;
-    RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
+    RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_MSI;
+
+    PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_ADC;
+    PeriphClkInit.AdcClockSelection = RCC_ADCCLKSOURCE_PLLSAI1;
+    PeriphClkInit.PLLSAI1.PLLSAI1Source = RCC_PLLSOURCE_MSI;
+    PeriphClkInit.PLLSAI1.PLLSAI1M = 4;
+    PeriphClkInit.PLLSAI1.PLLSAI1N = 24;
+    PeriphClkInit.PLLSAI1.PLLSAI1P = RCC_PLLP_DIV7;
+    PeriphClkInit.PLLSAI1.PLLSAI1Q = RCC_PLLQ_DIV6;
+    PeriphClkInit.PLLSAI1.PLLSAI1R = RCC_PLLR_DIV4;
+    PeriphClkInit.PLLSAI1.PLLSAI1ClockOut = RCC_PLLSAI1_ADC1CLK;
+    if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
+    {
+      _Error_Handler(__FILE__, __LINE__);
+    }
 
     if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_2) != HAL_OK)
     {
@@ -1498,16 +1567,22 @@ void SysClock48()
     /**Configure the Systick interrupt time
     */
     HAL_SYSTICK_Config(HAL_RCC_GetHCLKFreq()/1000);
+    taskEXIT_CRITICAL();
 }
 
-void SysClock80()
+void SysClock72()
 {
     RCC_OscInitTypeDef RCC_OscInitStruct;
     RCC_ClkInitTypeDef RCC_ClkInitStruct;
+    RCC_PeriphCLKInitTypeDef PeriphClkInit;
 
-    if (HAL_RCC_GetHCLKFreq() == 80000000) return;
+    if (HAL_RCC_GetHCLKFreq() == 72000000) return;
 
-    INFO("Setting 80MHz SysClock.");
+    INFO("Setting 72MHz SysClock.");
+
+    taskENTER_CRITICAL();
+
+    HAL_RCCEx_DisableMSIPLLMode();
 
     RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_SYSCLK;
     RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_HSI;
@@ -1517,11 +1592,14 @@ void SysClock80()
       _Error_Handler(__FILE__, __LINE__);
     }
 
-    RCC_OscInitStruct.OscillatorType = 0;
+    RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_MSI;
+    RCC_OscInitStruct.MSIState = RCC_MSI_ON;
+    RCC_OscInitStruct.MSICalibrationValue = RCC_MSICALIBRATION_DEFAULT;
+    RCC_OscInitStruct.MSIClockRange = RCC_MSIRANGE_11;
     RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
     RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_MSI;
-    RCC_OscInitStruct.PLL.PLLM = 1;
-    RCC_OscInitStruct.PLL.PLLN = 40;
+    RCC_OscInitStruct.PLL.PLLM = 4;
+    RCC_OscInitStruct.PLL.PLLN = 12;
     RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV7;
     RCC_OscInitStruct.PLL.PLLQ = RCC_PLLQ_DIV2;
     RCC_OscInitStruct.PLL.PLLR = RCC_PLLR_DIV2;
@@ -1538,14 +1616,85 @@ void SysClock80()
       _Error_Handler(__FILE__, __LINE__);
     }
 
+    PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_ADC;
+    PeriphClkInit.AdcClockSelection = RCC_ADCCLKSOURCE_PLLSAI1;
+    PeriphClkInit.PLLSAI1.PLLSAI1Source = RCC_PLLSOURCE_MSI;
+    PeriphClkInit.PLLSAI1.PLLSAI1M = 4;
+    PeriphClkInit.PLLSAI1.PLLSAI1N = 24;
+    PeriphClkInit.PLLSAI1.PLLSAI1P = RCC_PLLP_DIV7;
+    PeriphClkInit.PLLSAI1.PLLSAI1Q = RCC_PLLQ_DIV6;
+    PeriphClkInit.PLLSAI1.PLLSAI1R = RCC_PLLR_DIV4;
+    PeriphClkInit.PLLSAI1.PLLSAI1ClockOut = RCC_PLLSAI1_ADC1CLK;
+    if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
+    {
+      _Error_Handler(__FILE__, __LINE__);
+    }
+
+    HAL_RCCEx_EnableMSIPLLMode();
+
     /**Configure the Systick interrupt time
     */
     HAL_SYSTICK_Config(HAL_RCC_GetHCLKFreq()/1000);
+    // HAL_RCC_MCOConfig(RCC_MCO1, RCC_MCO1SOURCE_PLLCLK, RCC_MCODIV_4);
+    taskEXIT_CRITICAL();
+}
+
+void SysClock80()
+{
+    RCC_OscInitTypeDef RCC_OscInitStruct;
+    RCC_ClkInitTypeDef RCC_ClkInitStruct;
+    RCC_PeriphCLKInitTypeDef PeriphClkInit;
+
+    if (HAL_RCC_GetHCLKFreq() == 80000000) return;
+
+    INFO("Setting 80MHz SysClock.");
+
+    taskENTER_CRITICAL();
+
+    RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_SYSCLK;
+    RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_HSI;
+
+    if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_0) != HAL_OK)
+    {
+      _Error_Handler(__FILE__, __LINE__);
+    }
+
+    RCC_OscInitStruct.OscillatorType = 0;
+    RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
+    RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_MSI;
+    RCC_OscInitStruct.PLL.PLLM = 3;
+    RCC_OscInitStruct.PLL.PLLN = 20;
+    RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV7;
+    RCC_OscInitStruct.PLL.PLLQ = RCC_PLLQ_DIV4;
+    RCC_OscInitStruct.PLL.PLLR = RCC_PLLR_DIV4;
+    if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
+    {
+      _Error_Handler(__FILE__, __LINE__);
+    }
+
+    RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_SYSCLK;
+    RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
+
+    if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_4) != HAL_OK)
+    {
+      _Error_Handler(__FILE__, __LINE__);
+    }
+
+    PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_ADC;
+    PeriphClkInit.AdcClockSelection = RCC_ADCCLKSOURCE_SYSCLK;
+    if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
+    {
+      _Error_Handler(__FILE__, __LINE__);
+    }
+
+    /**Configure the Systick interrupt time
+    */
+    HAL_SYSTICK_Config(HAL_RCC_GetHCLKFreq()/1000);
+    taskEXIT_CRITICAL();
 }
 
 void SysClock4()
 {
-    RCC_OscInitTypeDef RCC_OscInitStruct;
     RCC_ClkInitTypeDef RCC_ClkInitStruct;
 
     taskENTER_CRITICAL();
@@ -1620,7 +1769,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
   }
   /* USER CODE BEGIN Callback 1 */
   if (htim->Instance == TIM1) {
-      HTIM1_PeriodElapsedCallback();
+      LED_TIMER_PeriodElapsedCallback();
   }
 
   /* USER CODE END Callback 1 */
@@ -1661,10 +1810,22 @@ void assert_failed(uint8_t* file, uint32_t line)
   /* USER CODE BEGIN 6 */
   /* User can add his own implementation to report the file name and line number,
      tex: printf("Wrong parameters value: file %s on line %d\r\n", file, line) */
+    ERROR("Wrong parameters value: file %s on line %ul", file, line);
   /* USER CODE END 6 */
 }
 #endif /* USE_FULL_ASSERT */
 
+void vApplicationMallocFailedHook()
+{
+    snprintf(error_message, sizeof(error_message), "malloc failed");
+    while (1);
+}
+
+void vApplicationStackOverflowHook(TaskHandle_t xTask, signed char *pcTaskName)
+{
+    snprintf(error_message, sizeof(error_message), "stack overflow %s", pcTaskName);
+    while (1);
+}
 /**
   * @}
   */

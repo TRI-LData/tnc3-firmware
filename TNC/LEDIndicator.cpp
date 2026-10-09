@@ -1,4 +1,4 @@
-// Copyright 2017 Rob Riggs <rob@mobilinkd.com>
+// Copyright 2017-2021 Rob Riggs <rob@mobilinkd.com>
 // All rights reserved.
 
 #include "LEDIndicator.h"
@@ -14,7 +14,7 @@
 
 #include <stdint.h>
 
-extern TIM_HandleTypeDef htim1;
+extern TIM_HandleTypeDef LED_PWM_TIMER_HANDLE;
 
 namespace mobilinkd {
 namespace tnc {
@@ -51,8 +51,16 @@ struct NoConnection
         switch (state) {
         case RAMP_UP_1:
             result = count * 40;
+#ifndef TNC3L
             if (count == 49)
             {
+#endif
+#ifdef TNC3L
+            if (count >= 49)
+            {
+    #
+#endif
+
                 count = 0;
                 state = WAIT_1;
             }
@@ -63,7 +71,12 @@ struct NoConnection
             break;
         case WAIT_1:
             result = 2000;
+#ifndef TNC3L
             if (count == 49)
+#endif
+#ifdef TNC3L
+           	if(count>=49)
+#endif
             {
                 state = RAMP_DN_1;
                 count = 49;
@@ -137,7 +150,13 @@ struct BluetoothConnection
         switch (state) {
         case RAMP_UP_1:
             result = ramp[count] / 2;
+#ifndef TNC3L
             if (count == 9)
+#endif
+#ifdef TNC3L
+            if (count >= 9)
+#endif
+
             {
                 state = RAMP_DN_1;
             }
@@ -159,7 +178,13 @@ struct BluetoothConnection
             break;
         case WAIT_1:
             result = 0;
+#ifndef TNC3L
             if (count == 19)
+#endif
+#ifdef TNC3L
+            	if (count >= 19)
+#endif
+
             {
                 state = RAMP_UP_2;
                 count = 0;
@@ -171,7 +196,13 @@ struct BluetoothConnection
             break;
         case RAMP_UP_2:
             result = ramp[count] / 2;
+#ifndef TNC3L
             if (count == 9)
+#endif
+#ifdef TNC3L
+            if (count >= 9)
+#endif
+
             {
                 state = RAMP_DN_2;
             }
@@ -372,10 +403,15 @@ struct Flash
 
     constexpr static const int ramp[10] =
         { 1564, 3090, 4540, 5878, 7071, 8090, 8910, 9510, 9877, 9999 };
-
+#ifndef NUCLEOTNC
     constexpr static const uint32_t BLUE_CHANNEL = TIM_CHANNEL_1;
     constexpr static const uint32_t GREEN_CHANNEL = TIM_CHANNEL_2;
     constexpr static const uint32_t RED_CHANNEL = TIM_CHANNEL_3;
+#else
+    constexpr static const uint32_t BLUE_CHANNEL = TIM_CHANNEL_3;   // YELLOW...
+    constexpr static const uint32_t GREEN_CHANNEL = TIM_CHANNEL_2;
+    constexpr static const uint32_t RED_CHANNEL = TIM_CHANNEL_1;
+#endif
 
     int gr_count { 9 };
     state_type gr_state { STATE::OFF };
@@ -416,7 +452,7 @@ struct Flash
             if (counter == 0)
             {
                 state = STATE::OFF;
-                HAL_TIM_PWM_Stop(&htim1, channel);
+                HAL_TIM_PWM_Stop(&LED_PWM_TIMER_HANDLE, channel);
             }
             else
             {
@@ -446,7 +482,7 @@ struct Flash
         auto expected = STATE::OFF;
         if (gr_state.compare_exchange_strong(expected, STATE::RAMP_UP))
         {
-            HAL_TIM_PWM_Start(&htim1, GREEN_CHANNEL);
+            HAL_TIM_PWM_Start(&LED_PWM_TIMER_HANDLE, GREEN_CHANNEL);
         }
         else
         {
@@ -468,7 +504,7 @@ struct Flash
         if (rd_state.compare_exchange_strong(expected, STATE::RAMP_UP))
         {
             // PWM Channel must match
-            HAL_TIM_PWM_Start(&htim1, RED_CHANNEL);
+            HAL_TIM_PWM_Start(&LED_PWM_TIMER_HANDLE, RED_CHANNEL);
         }
         else
         {
@@ -487,19 +523,19 @@ struct Flash
     void disconnect()
     {
         blue_func = noConnection;
-        HAL_TIM_PWM_Start(&htim1, BLUE_CHANNEL);
+        HAL_TIM_PWM_Start(&LED_PWM_TIMER_HANDLE, BLUE_CHANNEL);
     }
 
     void usb()
     {
         blue_func = usbConnection;
-        HAL_TIM_PWM_Start(&htim1, BLUE_CHANNEL);
+        HAL_TIM_PWM_Start(&LED_PWM_TIMER_HANDLE, BLUE_CHANNEL);
     }
 
     void bt()
     {
         blue_func = btConnection;
-        HAL_TIM_PWM_Start(&htim1, BLUE_CHANNEL);
+        HAL_TIM_PWM_Start(&LED_PWM_TIMER_HANDLE, BLUE_CHANNEL);
     }
 };
 
@@ -513,19 +549,25 @@ Flash& flash()
 }
 } // mobilinkd::tnc
 
-void HTIM1_PeriodElapsedCallback()
+void LED_TIMER_PeriodElapsedCallback()
 {
     using mobilinkd::tnc::flash;
 
     // CCR registers must match the TIM_CHANNEL used for each LED in Flash.
-    htim1.Instance->CCR1 = flash().blue();
-    htim1.Instance->CCR2 = flash().green();
-    htim1.Instance->CCR3 = flash().red();
+#ifndef NUCLEOTNC
+    LED_PWM_TIMER_HANDLE.Instance->CCR1 = flash().blue();
+    LED_PWM_TIMER_HANDLE.Instance->CCR2 = flash().green();
+    LED_PWM_TIMER_HANDLE.Instance->CCR3 = flash().red();
+#else
+    LED_PWM_TIMER_HANDLE.Instance->CCR1 = flash().red();
+    LED_PWM_TIMER_HANDLE.Instance->CCR2 = flash().green();
+    LED_PWM_TIMER_HANDLE.Instance->CCR3 = flash().blue(); // YELLOW
+#endif
 }
 
 void indicate_turning_on(void)
 {
-    HAL_TIM_Base_Start_IT(&htim1);
+    HAL_TIM_Base_Start_IT(&LED_PWM_TIMER_HANDLE);
     tx_on();
     rx_on();
 }
