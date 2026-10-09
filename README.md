@@ -21,13 +21,13 @@ compatible with the TNC3 should work with the TNC3L.  This repository is for TNC
 ported to TNC3L hardware.  The code changes are enabled with a define statement
 in main.h, #define TNC3L.
 
-Source code with modifications:
-main.h
-util.h (new)
-LEDIndicator.cpp
-IOEventTask.cpp
-
-
+TNC3L modified files from TNC3 are:
+1) main.h
+2) main.c
+3) util.h (new)
+4) LEDIndicator.cpp
+5) IOEventTask.cpp
+Search for #ifdef TNC3 in each to view modifications.
 
 TNC3L was designed to be attached to an HT by simply plugging it in.  There are no 
 cables or need to attach the device to the HT with rubber bands or Velcro.   Simply plug 
