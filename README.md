@@ -1,4 +1,7 @@
 # TNC3L
+# !!! THIS RESPOSITORY IS WORK INPROGRESS !!!
+##Current Status: Repository work and TNC3L prep for FCC testing
+
 TNC3L was developed as an enhanced hardware version of Mobilinkd’s open-sourced TNC3.  
 The goal was to make TNC3L easier to use and maintain from a hardware perspective and 
 not to change/rewrite firmware developed for TNC3.  This would ensure application compatibility, 
@@ -17,6 +20,14 @@ changes have been made to accommodate hardware changes.  Functionally all applic
 compatible with the TNC3 should work with the TNC3L.  This repository is for TNC3 firmware
 ported to TNC3L hardware.  The code changes are enabled with a define statement
 in main.h, #define TNC3L.
+
+Source code with modifications:
+main.h
+util.h (new)
+LEDIndicator.cpp
+IOEventTask.cpp
+
+
 
 TNC3L was designed to be attached to an HT by simply plugging it in.  There are no 
 cables or need to attach the device to the HT with rubber bands or Velcro.   Simply plug 
