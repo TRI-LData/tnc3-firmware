@@ -16,7 +16,7 @@ repository is a fork of
 ## TNC3L and TNC3 Differences
 
 TNC3L firmware is almost identical to TNC3 firmware as posted on GitHub.  Minor firmware
-changes have been made to accommodate hardware changes.  Functionally all applications 
+changes have been made to accommodate hardware differences.  Functionally all applications 
 compatible with the TNC3 should work with the TNC3L.  This repository is for TNC3 firmware
 ported to TNC3L hardware.  The code changes are enabled with a define statement
 in main.h, #define TNC3L.
