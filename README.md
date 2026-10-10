@@ -89,7 +89,9 @@ using a 3.5mm plug.  TNC3L K1 style docking adapter is an example.  It connects 
 ### 3D Printed Enclosure
 The TNC3L enclosure and docking adapter are made from 3D printed parts.  FCC testing was
 also performed using TNC3L as shown here.  TNC3L is not limited to the a specific enclosure.  Users are welcome to 
-design custom enclosures to adopt various battery sizes and device orientation.  
+design custom enclosures to adopt various battery sizes and device orientation. 
+ 
+![K Dock](/assets/images/K_Dock2R1.png)
 
 # Firmware 
 Please refer to Mobilinkd's TNC3 GitHub repository for building and installing firmware.  Do not use frimware
